@@ -321,6 +321,86 @@ function copyCode(btn, code) {
 // ============================================
 let isAnalyzing = false;
 
+const ANALYZE_SYSTEM_PROMPT = `你是一位资深数据结构与算法教学专家。你的任务是分析学生提交的代码，帮助他们发现并理解问题。
+
+## 你的分析要求：
+1. 仔细阅读代码，理解其意图
+2. 从以下维度进行检查：
+   - 概念理解：数据结构选型是否正确，算法思想是否正确
+   - 逻辑推理：算法步骤是否完整，边界条件是否正确，递归逻辑是否正确
+   - 代码实现：指针操作、循环条件、内存管理是否有错误
+   - 复杂度分析：时间复杂度、空间复杂度是否合理
+3. 用中文给出分析结果
+
+## 输出格式（严格JSON）：
+{
+  "overall_assessment": "对代码的总体评价，100-200字",
+  "issues": [
+    {
+      "severity": "error|warning|info",
+      "line": 行号（如果可以确定）,
+      "description": "问题描述",
+      "fix": "具体的修正建议"
+    }
+  ],
+  "corrected_code": "修正后的完整代码（如果需要修正的话）"
+}
+
+## 注意：
+- severity 为 "error" 表示会导致程序崩溃或结果错误的严重问题
+- severity 为 "warning" 表示逻辑缺陷、边界遗漏等潜在问题
+- severity 为 "info" 表示优化建议
+- 如果代码非常完善，issues 可以为空数组
+- 只输出JSON，不要输出其他内容`;
+
+async function callDirectAnalyzeApi(code, language) {
+  const cfg = (typeof ApiConfig !== 'undefined') ? ApiConfig.load() : { apiKey: '', apiBase: 'https://api.openai.com/v1', model: 'gpt-4o' };
+  const apiBase = cfg.apiBase || 'https://api.openai.com/v1';
+  const model = cfg.model || 'gpt-4o';
+
+  const userMessage = `请分析以下${language}代码：
+
+\`\`\`${language}
+${code}
+\`\`\`
+
+请严格按照 JSON 格式输出分析结果。`;
+
+  const url = apiBase.replace(/\/+$/, '') + '/chat/completions';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cfg.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: ANALYZE_SYSTEM_PROMPT },
+        { role: 'user', content: userMessage }
+      ],
+      max_tokens: 4096
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    let errMsg = `API 请求失败 (${response.status})`;
+    try { const e = JSON.parse(errText); errMsg = e.error?.message || e.message || errMsg; } catch {}
+    throw new Error(errMsg);
+  }
+
+  const data = await response.json();
+  let responseText = data.choices[0].message.content;
+  // 解析 JSON
+  let jsonStr = responseText.trim();
+  if (jsonStr.startsWith('\`\`\`')) {
+    const lines = jsonStr.split('\n');
+    jsonStr = lines.slice(1, -1).join('\n');
+  }
+  return JSON.parse(jsonStr);
+}
+
 async function analyzeCode() {
   if (isAnalyzing) return;
 
@@ -356,25 +436,35 @@ async function analyzeCode() {
   `;
 
   try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, language })
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `请求失败 (${response.status})`);
+    // 先尝试调用后端
+    let data = null;
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, language })
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `请求失败 (${response.status})`);
+      }
+      data = await response.json();
+    } catch (backendErr) {
+      // 后端不可用，尝试直接调用 API
+      if (typeof ApiConfig !== 'undefined' && ApiConfig.isConfigured()) {
+        data = await callDirectAnalyzeApi(code, language);
+      } else {
+        throw new Error('后端不可用，且未配置 API Key。请在网站右下角 🤖 按钮的 ⚙️ 设置中配置 API Key。');
+      }
     }
 
-    const data = await response.json();
     renderAnalysisResult(data);
   } catch (err) {
     resultPanel.innerHTML = `
       <div class="result-empty">
         <div class="icon">⚠️</div>
         <p style="color: var(--error);">分析失败: ${escapeHtml(err.message)}</p>
-        <p style="margin-top:8px;font-size:0.85rem;">请确保后端服务已启动，且已配置 API Key</p>
+        <p style="margin-top:8px;font-size:0.85rem;">请确认已配置 API Key（点击右下角 🤖 → ⚙️ 设置）</p>
       </div>
     `;
   } finally {

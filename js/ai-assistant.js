@@ -11,6 +11,32 @@ window._dsContext = {
   topicErrors: ''
 };
 
+// ==================== 系统提示词（浏览器端直接调用API时使用） ====================
+const CHAT_SYSTEM_PROMPT_TEMPLATE = `你是一位资深的《数据结构与算法》教学专家，兼 AI 学习助手。你的任务是用通俗易懂、有亲和力的方式帮助学生理解数据结构知识。
+
+## 你的风格
+- 用通俗的语言解释复杂概念，善用生活中的类比
+- 对学生的代码问题，先指出问题根源，再给出修正方案
+- 回答结构化：先给结论，再展开细节，最后给出总结或延伸思考
+- 如果学生问了与当前学习章节相关的问题，优先结合该章节内容回答
+
+## 你的能力
+- 解释任何数据结构概念（线性表、树、图、排序、查找等）
+- 分析代码问题并给出修正（时间复杂度、逻辑错误、边界条件等）
+- 生成针对性练习题
+- 对比不同数据结构的适用场景和优劣
+
+## 回复格式
+- 使用 Markdown 格式
+- 代码放在 \`\`\` 代码块中并标注语言
+- 重要概念用 **粗体** 标注
+- 用简单列表组织信息
+
+## 当前学习上下文
+{context}
+
+请根据以上上下文，针对性地回答学生的问题。如果学生没有指定上下文，就当做一般的数据结构问题回答。`;
+
 // ==================== API 配置管理 ====================
 const ApiConfig = {
   _key: 'ds_api_config',
@@ -18,9 +44,9 @@ const ApiConfig = {
   defaults() {
     return {
       apiKey: '',
-      provider: 'anthropic',     // anthropic | openai | custom
-      apiBase: 'https://api.anthropic.com',
-      model: 'claude-sonnet-4-6',
+      provider: 'deepseek',     // deepseek | openai | anthropic | zhipu | custom
+      apiBase: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
       customProvider: ''
     };
   },
@@ -303,7 +329,6 @@ const AIAssistant = (function() {
   function buildRequestBody(extra) {
     const cfg = ApiConfig.load();
     const body = { ...extra };
-    // 如果用户在本地配置了 API key，传给后端
     if (cfg.apiKey) {
       body._api_key = cfg.apiKey;
     }
@@ -314,6 +339,71 @@ const AIAssistant = (function() {
       body._model = cfg.model;
     }
     return body;
+  }
+
+  // ---------- 浏览器直接调用 AI API（无后端模式）----------
+  async function callDirectApi(messages) {
+    const cfg = ApiConfig.load();
+    const apiBase = cfg.apiBase || 'https://api.anthropic.com';
+    const model = cfg.model || 'claude-sonnet-4-6';
+
+    // 构建 OpenAI 兼容请求（DeepSeek/OpenRouter/智谱等均支持此格式）
+    const url = apiBase.replace(/\/+$/, '') + '/chat/completions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cfg.apiKey}`,
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        max_tokens: 4096,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let errMsg = `API 请求失败 (${response.status})`;
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson.error?.message || errJson.message || errMsg;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+  }
+
+  async function callApiWithFallback(urlPath, body, messages) {
+    // 先尝试调用后端
+    try {
+      const response = await fetch(urlPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return { ok: true, data };
+      }
+      const err = await response.json().catch(() => ({}));
+      return { ok: false, error: err.error || err.message || `请求失败 (${response.status})` };
+    } catch (backendErr) {
+      // 后端不可用，尝试直接调用 API
+      if (messages) {
+        try {
+          const reply = await callDirectApi(messages);
+          return { ok: true, data: { reply }, direct: true };
+        } catch (directErr) {
+          return { ok: false, error: `后端不可用，直接调用 API 也失败：${directErr.message}` };
+        }
+      }
+      return { ok: false, error: `❌ 连接失败：${backendErr.message}\n\n请确认后端服务已启动。` };
+    }
   }
 
   // ---------- 消息管理 ----------
@@ -393,21 +483,25 @@ const AIAssistant = (function() {
         .filter(h => h.role === 'user' || h.role === 'assistant')
         .map(h => ({ role: h.role, content: h.content }));
 
+      // 构建直接调用 API 所需的消息列表
+      const sysPrompt = CHAT_SYSTEM_PROMPT_TEMPLATE.replace('{context}',
+        context || '学生当前未在浏览特定知识点，请一般性地回答问题。');
+      const directMessages = [
+        { role: 'system', content: sysPrompt },
+        ...history,
+        { role: 'user', content: text }
+      ];
+
       const body = buildRequestBody({ message: text, context, history });
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const result = await callApiWithFallback('/api/chat', body, directMessages);
 
       hideTyping();
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        addMessage('assistant', err.error || err.message || `请求失败 (${response.status})`);
+      if (!result.ok) {
+        addMessage('assistant', result.error);
       } else {
-        const data = await response.json();
-        addMessage('assistant', data.reply || 'AI 没有返回内容');
-        StateTracker.addChatMessage('assistant', data.reply || '');
+        const reply = result.data.reply || 'AI 没有返回内容';
+        addMessage('assistant', reply);
+        StateTracker.addChatMessage('assistant', reply);
       }
     } catch (err) {
       hideTyping();
@@ -469,21 +563,24 @@ const AIAssistant = (function() {
         .filter(h => h.role === 'user' || h.role === 'assistant')
         .map(h => ({ role: h.role, content: h.content }));
 
+      const sysPrompt = CHAT_SYSTEM_PROMPT_TEMPLATE.replace('{context}',
+        context || '学生当前未在浏览特定知识点，请一般性地回答问题。');
+      const directMessages = [
+        { role: 'system', content: sysPrompt },
+        ...history,
+        { role: 'user', content: question }
+      ];
+
       const body = buildRequestBody({ message: question, context, history });
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const result = await callApiWithFallback('/api/chat', body, directMessages);
 
       hideTyping();
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        addMessage('assistant', err.error || err.message || `请求失败 (${response.status})`);
+      if (!result.ok) {
+        addMessage('assistant', result.error);
       } else {
-        const data = await response.json();
-        addMessage('assistant', data.reply || 'AI 没有返回内容');
-        StateTracker.addChatMessage('assistant', data.reply || '');
+        const reply = result.data.reply || 'AI 没有返回内容';
+        addMessage('assistant', reply);
+        StateTracker.addChatMessage('assistant', reply);
       }
     } catch (err) {
       hideTyping();
@@ -642,13 +739,13 @@ const AIAssistant = (function() {
 
 在使用之前，请先点击 ⚙️ 按钮配置你的 API Key：
 
-- **Anthropic Claude** — 最强代码分析能力
+- **DeepSeek** — 高性价比国产模型（推荐）
 - **OpenAI GPT** — 通用对话
-- **DeepSeek** — 高性价比国产模型
 - **智谱 GLM** — 国产大模型
-- **自定义** — 任何 OpenAI 兼容接口
+- **Anthropic Claude** — 需要后端代理
+- **自定义** — 任何 OpenAI 兼容接口（如 OpenRouter）
 
-你也可以在环境变量中设置服务器端的 Key（ANTHROPIC_API_KEY）。
+💡 **提示**：API Key 仅存储在浏览器本地，通过你的浏览器直接调用 AI API，不会经过任何中间服务器。
 
 当前学习进度：还未开始。在数据结构页面浏览内容时，我会自动感知你正在学习的章节。
       `.trim(), 'welcome');
