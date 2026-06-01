@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据结构学习中心 — 从概念到实践</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/ai-assistant.css">
+  <!-- highlight.js 代码高亮 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+  <style>
+    /* highlight.js 初始化前的内容不会被高亮 */
+    pre code.hljs { padding: 0; }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== 顶部导航 ==================== -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">DS</div>
+        <span>数据结构学习中心</span>
+      </div>
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-page="home">🏠 首页</button>
+        <button class="nav-tab" data-page="data-structures">📚 数据结构详解</button>
+        <button class="nav-tab" data-page="ai-tool">🤖 AI 代码评估</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ==================== 主内容区 ==================== -->
+  <main class="main">
+
+    <!-- 页面1：首页 -->
+    <div class="page active" id="page-home">
+      <div class="home-hero">
+        <h1>数据结构，从入门到精通</h1>
+        <p>
+          系统化学习线性结构、树、图、查找与排序五大核心模块，
+          每个知识点配有详细解释、代码示例和常见错误分析。
+          更有 AI 助手帮你审查代码、发现 Bug、提出修正。
+        </p>
+      </div>
+      <div class="home-cards" id="home-cards">
+        <!-- JS动态填充 -->
+      </div>
+    </div>
+
+    <!-- 页面2：数据结构详解 -->
+    <div class="page" id="page-data-structures">
+      <div class="ds-layout">
+        <!-- 左侧边栏 -->
+        <aside class="sidebar" id="sidebar">
+          <!-- JS动态填充 -->
+        </aside>
+        <!-- 右侧内容 -->
+        <div class="content-area" id="content-area">
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-light);">
+            <p>👈 请从左侧选择一个知识点</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 页面3：AI代码评估 -->
+    <div class="page" id="page-ai-tool">
+      <div class="ai-layout">
+        <!-- 左侧：代码输入 -->
+        <div class="ai-panel">
+          <div class="ai-panel-header">
+            <h3>💻 输入你的代码</h3>
+            <select class="language-select" id="language-select">
+              <option value="cpp">C++</option>
+              <option value="python">Python</option>
+              <option value="java">Java</option>
+              <option value="javascript">JavaScript</option>
+              <option value="c">C</option>
+            </select>
+          </div>
+          <textarea class="code-input" id="code-input"
+            placeholder="在此粘贴你的数据结构相关代码...
+
+例如：
+// 单链表反转
+ListNode* reverseList(ListNode* head) {
+    ListNode *prev = nullptr, *curr = head;
+    while (curr) {
+        ListNode* next = curr->next;
+        curr->next = prev;
+        prev = curr;
+        curr = next;
+    }
+    return prev;
+}
+
+按 Ctrl+Enter 快速提交分析"
+          ></textarea>
+          <button class="submit-btn" id="submit-btn">
+            <span class="spinner"></span>
+            <span class="btn-text">🔍 AI 分析代码</span>
+          </button>
+        </div>
+
+        <!-- 右侧：分析结果 -->
+        <div class="ai-panel result-panel" id="result-panel">
+          <div class="result-empty">
+            <div class="icon">🤖</div>
+            <p>AI 将在这里展示代码分析结果</p>
+            <p style="font-size:0.8rem;margin-top:8px;">包括问题定位、错误解释和修正建议</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ==================== 页脚 ==================== -->
+  <footer class="footer">
+    <p>数据结构学习中心 · 快捷键：Ctrl+1 首页 | Ctrl+2 数据结构 | Ctrl+3 AI工具 | Ctrl+Enter 提交分析</p>
+  </footer>
+
+  <!-- ==================== JS脚本 ==================== -->
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/ai-assistant.js"></script>
+</body>
+</html>
